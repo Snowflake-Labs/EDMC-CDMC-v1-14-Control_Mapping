@@ -1,0 +1,131 @@
+-------
+-- Fin_06_Cost_Governance.sql
+-------
+
+-- queries here satisfy CDMC v1.0 Capability 6.2 Control 14 Test Criteria [All]
+
+-- Cost Governance Metrics
+use role sysadmin;
+-- First, define a time period in session variables over which we want to analyze
+set START_TIME_Min = DATEADD(DAY, -60, CURRENT_TIMESTAMP());
+set START_TIME_MAX = CURRENT_TIMESTAMP();
+
+-- Next, create a temporary table (a cache) that performs the cost attribution
+use database <DATABASE>; -- use any avalable database
+use schema <SCHEMA>; -- use any avalable schema
+create OR REPLACE TRANSIENT TABLE QH_CREDIT
+DATA_RETENTION_TIME_IN_DAYS = 0
+AS
+  WITH CTE_QH AS (
+    SELECT START_TIME
+          ,END_TIME
+          ,TOTAL_ELAPSED_TIME - (LIST_EXTERNAL_FILES_TIME+COMPILATION_TIME+QUEUED_PROVISIONING_TIME+QUEUED_REPAIR_TIME+QUEUED_OVERLOAD_TIME+TRANSACTION_BLOCKED_TIME) AS WH_TIME
+          ,DATEADD(MILLISECOND, -WH_TIME, END_TIME) AS START_TIME_WH
+          ,WAREHOUSE_ID
+          ,WAREHOUSE_NAME
+          ,WAREHOUSE_SIZE
+          ,WAREHOUSE_TYPE
+          ,CLUSTER_NUMBER
+          ,QUERY_TAG
+          ,SESSION_ID
+          ,USER_NAME
+          ,ROLE_NAME
+          ,DATABASE_ID
+          ,DATABASE_NAME
+          ,SCHEMA_ID
+          ,SCHEMA_NAME
+          ,QUERY_TYPE
+          ,EXECUTION_STATUS
+          ,ERROR_CODE
+          ,ERROR_MESSAGE
+      FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
+     WHERE CLUSTER_NUMBER IS NOT NULL
+       AND START_TIME >= DATEADD(HOUR, -1, $START_TIME_MIN)
+       AND START_TIME < $START_TIME_MAX
+  )
+  ,CTE_WMH AS (
+    SELECT START_TIME
+          ,END_TIME
+          ,WAREHOUSE_ID
+          ,WAREHOUSE_NAME
+          ,CREDITS_USED_COMPUTE
+      FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY
+     WHERE START_TIME >= $START_TIME_MIN
+       AND START_TIME < $START_TIME_MAX
+  )
+  ,CTE_OVERLAP AS (
+    SELECT WMH.WAREHOUSE_ID
+          ,WMH.WAREHOUSE_NAME
+          ,GREATEST(WMH.START_TIME, IFNULL(QH.START_TIME_WH, WMH.START_TIME)) AS START_TIME_SEGMENT
+          ,LEAST(WMH.END_TIME, IFNULL(QH.END_TIME, WMH.END_TIME)) AS END_TIME_SEGMENT
+          ,WMH.CREDITS_USED_COMPUTE * 
+             (
+               DATEDIFF(MILLISECOND, START_TIME_SEGMENT, END_TIME_SEGMENT) / 
+               SUM(DATEDIFF(MILLISECOND, START_TIME_SEGMENT, END_TIME_SEGMENT)) OVER (PARTITIon BY WMH.WAREHOUSE_ID, WMH.START_TIME)
+             ) AS SEGMENT_CREDITS
+          ,QH.WAREHOUSE_SIZE
+          ,QH.WAREHOUSE_TYPE
+          ,QH.CLUSTER_NUMBER
+          ,QH.QUERY_TAG
+          ,QH.SESSION_ID
+          ,QH.USER_NAME
+          ,QH.ROLE_NAME
+          ,QH.DATABASE_ID
+          ,QH.DATABASE_NAME
+          ,QH.SCHEMA_ID
+          ,QH.SCHEMA_NAME
+          ,QH.QUERY_TYPE
+          ,QH.EXECUTION_STATUS
+          ,QH.ERROR_CODE
+          ,QH.ERROR_MESSAGE
+      FROM CTE_WMH WMH
+           LEFT JOin CTE_QH QH
+             on WMH.WAREHOUSE_ID = QH.WAREHOUSE_ID
+            AND WMH.START_TIME < QH.END_TIME
+            AND QH.START_TIME_WH < WMH.END_TIME
+  )
+  SELECT *
+    FROM CTE_OVERLAP
+;
+
+-- Top 10 users (by credits consumed) over time period defined by [START_TIME_MIN, START_TIME_MAX)
+-- Exclude system users from this busines level report if you wish
+WITH X AS (
+  SELECT USER_NAME
+        ,WAREHOUSE_NAME
+        ,SUM(SEGMENT_CREDITS)::DECIMAL(38,9) AS CREDITS_USER_WH
+    FROM QH_CREDIT
+   WHERE 
+    USER_NAME not like 'ALICE' and
+    USER_NAME not like 'ALATION%' and
+    USER_NAME is not NULL 
+   GROUP BY 1,2
+)
+SELECT USER_NAME
+      ,SUM(CREDITS_USER_WH) AS CREDITS_USER
+      ,OBJECT_AGG(WAREHOUSE_NAME, CREDITS_USER_WH) AS CREDITS_USER_BY_WH
+  FROM X
+ GROUP BY 1
+ ORDER BY 2 DESC
+ LIMIT 10
+;
+
+-- Top 10 query_tags (by credits consumed) over time period defined by [START_TIME_MIN, START_TIME_MAX)
+SELECT QUERY_TAG
+      ,SUM(SEGMENT_CREDITS)::DECIMAL(38,9) AS CREDITS_USER_WH
+  FROM QH_CREDIT
+  WHERE QUERY_TAG is not NULL and QUERY_TAG not like ''
+ GROUP BY 1
+ ORDER BY 2 DESC
+ LIMIT 100
+;
+
+-- Look at what stores the most data
+select 
+    TABLE_SCHEMA, 
+    sum(ACTIVE_BYTES+TIME_TRAVEL_BYTES+FAILSAFE_BYTES+RETAINED_FOR_CLONE_BYTES) as TOTAL_BYTES, 
+    (TOTAL_BYTES*(23/1099511627776::double)) as STORAGE_COST        
+from SNOWFLAKE.ACCOUNT_USAGE.TABLE_STORAGE_METRICS
+where active_bytes != 0
+group by TABLE_SCHEMA
+;
