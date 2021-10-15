@@ -30,3 +30,15 @@ Steps to create the Snowflake parts are as follows:
 6. Once the user activity is set up and running, then run the remaining SQL scripts for each of the three accounts. 
 
 At this stage, you are able to move on to the configuration of the Alation instance. 
+
+Steps to create the Alation parts are as follows:
+1. If using the Alation instance on-premise, install the Alation.  This is not required if using an Alation cloud-managed instance.
+2. Request CDMC instance backup file from Alation by mailing john.wills@alation.com.
+3. Restore the instance backup file.
+4. Switch on Alation Analytics.
+5. Copy the data quality test harness python script files (DQ_Driver.py and dq_rules.csv) to the Alation one_off_scripts directory using the Alation shell.
+6. Use CRON to schedule DQ_Driver.py to execute once an hour.
+7. Copy all policy bot python script files to the Alation one_off_scripts directory using the Alation shell.
+8. Use CRON to schedule each policy bot python script file to execute once every 15 minutes.
+9. Create an Entitlement Audit Report using a BI tool that queries Alation Analytics and embed the report in the catalog page entitled Entitlement Audit Tracking.
+ 
