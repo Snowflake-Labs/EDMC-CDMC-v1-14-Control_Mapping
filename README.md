@@ -40,3 +40,4 @@ Use CRON to schedule the data quality test harness python script file to execute
 Copy all policy bot python script files to the Alation one_off_scripts directory using the Alation shell.
 Use CRON to schedule each policy bot python script file to execute once every 15 minutes.
 Create an Entitlement Audit Report using a BI tool that queries Alation Analytics and embed the report in the catalog page entitled Entitlement Audit Tracking.
+ 
