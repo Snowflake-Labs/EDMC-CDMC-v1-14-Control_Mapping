@@ -20,7 +20,7 @@ def json_serial(obj):
 
 
 # get url and Alation user
-target_url = 'http://54.191.244.251/alation_integrations/data_quality/upload/'
+target_url = 'http://[Replace with DQ microservice ip]/alation_integrations/data_quality/upload/'
 alation_user = 41
 headers = ''
 
