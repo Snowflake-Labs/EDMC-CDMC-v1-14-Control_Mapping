@@ -32,7 +32,7 @@ Steps to create the Snowflake parts are as follows:
 At this stage, you are able to move on to the configuration of the Alation instance. 
 
 Steps to create the Alation parts are as follows:
-1. If using the Alation instance on-premise, install the Alation.  This is not required if using an Alation cloud-managed instance.
+1. If using the Alation instance on-premise, install Alation.  This is not required if using an Alation cloud-managed instance.
 2. Request CDMC instance backup file from Alation by mailing john.wills@alation.com.
 3. Restore the instance backup file.
 4. Switch on Alation Analytics.
